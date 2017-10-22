@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #define BUFFSIZE 256
 
@@ -10,14 +13,17 @@ void comandos(char *argumentos[]);
 void agregaBarra (char *s1);
 char* concatenar(const char *s1, const char *s2);
 void path(char *argumentos[]);
+int background(char *argumentos[]);
+void handler(int signum);
+
 
 int main (int argc, char **argv){
-char entrada[100];	
-int i=0;
-int fin=0;
-char host[BUFFSIZE+1], *usuario, *argumentos[10], *exit, dirActual[100];
+	char entrada[100];	
+	int i=0;
+	int fin=0;
+	char host[BUFFSIZE+1], *usuario, *argumentos[10], *exit, dirActual[100];
 
-int n;	
+	int n;	
 	FILE *fd;
 	char buffer[BUFFSIZE+1];
 	fd = fopen("/etc/hostname","r");
@@ -25,6 +31,8 @@ int n;
 	sscanf(buffer, "%s",host);	
 	fclose(fd);			//almaceno en la variable host, el nombre del host que ejecuto este prompt
 	usuario = getlogin();		//con la funcion getlogin() obtengo el nombre del usuario actual
+
+	signal(SIGCHLD, handler); // señal para las tareas hijas en background que terminan
 
 	do {
 		getcwd(dirActual,100);			//obtengo el directorio en donde estoy en dicho momento
@@ -56,22 +64,29 @@ void parser(char *entrada,char *argu[]){  //funcion donde a la entrada por tecla
 }
 
 void comandos(char *argumentos[]){ //funcion que interpreta los comandos ingresados 
-	
-	if (strcmp(argumentos[0],"exit") == 0){	//cierra el prompt al ingresar el comando exit
-			exit(0);
+	int flag_bckgrnd = 0;
+	int tamanio=0;
+	while (argumentos[tamanio]!='\0'){
+	tamanio++;
+	}
+	if (tamanio != 0){ 
+		if (strcmp(argumentos[0],"exit") == 0){	//cierra el prompt al ingresar el comando exit
+				exit(0);
 		}			
-	if (strcmp(argumentos[0],"cd") == 0){	// comando cd 
-		if (strcmp(argumentos[1],"..") == 0){
-		chdir(".."); 		//cambio de directorio ".."
+		if (strcmp(argumentos[0],"cd") == 0){	// comando cd 
+			if (strcmp(argumentos[1],"..") == 0){
+			chdir(".."); 		//cambio de directorio ".."
+			}
+			else {
+					chdir(argumentos[1]);		
+			}	
 		}
 		else {
-		chdir(argumentos[1]);
-		}	
-	}
-	else {
 		
-		path(argumentos);	//esta funcion busca el comando en la variable PATH		
+			path(argumentos);	//esta funcion busca el comando en la variable PATH		
+		}
 	}
+	
 }
 
 void path(char *argumentos[]){		//
@@ -97,9 +112,15 @@ void path(char *argumentos[]){		//
       	if(pid == 0)   { // Ejecucion del Hijo
       		execv(com_argu, argumentos); 
        		exit(1);
-      } 
-      else { // Ejecucion del Padre
-      	wait(&status);  
+      	} 
+      	else { // Ejecucion del Padre
+      		if (background(argumentos) == 1){ //modo background|
+      			//no hacer nada, la señal sigchld se encarga de avisar al proc padre que el hijo terminó
+      		}
+      		else{
+      			wait(&status);
+      		}
+      	  
   		}
    	}
 }
@@ -118,3 +139,29 @@ char* concatenar(const char *s1, const char *s2){ // une el directorio del PATH 
     strcat(resultado, s2);
     return resultado;
 }
+
+int background(char *argumentos[]){
+	
+	int tam=0;
+	while (argumentos[tam]!='\0'){		//busco el ultimo argumento pasado
+	tam++;
+	}
+	
+	if (strcmp(argumentos[tam-1],"&") == 0){ //si el ultimo argumento es un &. return 1 sino 0
+		argumentos[tam-1] = NULL;			//borro el &
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+// Función handler que maneja la señal que envía el proceso hijo que está ejecutándose en background
+void handler(int signum) {
+    int status;
+    pid_t pid;
+
+    pid = waitpid(-1, &status, WNOHANG);
+}
+
+
